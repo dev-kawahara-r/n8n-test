@@ -1,0 +1,157 @@
+{
+  "name": "Slack to GitHub Issue",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "slack-webhook",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Slack Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "resource": "chat",
+        "operation": "message",
+        "modelId": "claude-3-opus-20240229",
+        "messages": {
+          "values": [
+            {
+              "content": "以下のSlackメッセージを分析して、GitHub Issueに適した形式で整理してください。\n\n入力: {{$json[\"body\"][\"text\"]}}\n\n以下のJSON形式で返してください:\n{\n  \"title\": \"簡潔なIssueタイトル\",\n  \"body\": \"詳細な説明\",\n  \"labels\": [\"適切なラベル\"],\n  \"complexity\": \"easy/medium/hard\",\n  \"can_ai_implement\": true/false,\n  \"implementation_plan\": \"AIが実装する場合の手順\"\n}"
+            }
+          ]
+        },
+        "options": {
+          "maxTokens": 1000
+        }
+      },
+      "id": "ai-analysis",
+      "name": "AI Analysis",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "resource": "issue",
+        "operation": "create",
+        "owner": "nint-hd",
+        "repository": "ec-nexus",
+        "title": "={{$json[\"title\"]}}",
+        "body": "={{$json[\"body\"]}}\\n\\n---\\n**複雑度**: {{$json[\"complexity\"]}}\\n**AI実装可能**: {{$json[\"can_ai_implement\"]}}\\n\\n## 実装計画\\n{{$json[\"implementation_plan\"]}}",
+        "labels": "={{$json[\"labels\"]}}"
+      },
+      "id": "create-issue",
+      "name": "Create GitHub Issue",
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json[\"can_ai_implement\"]}}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "check-ai-implementable",
+      "name": "AI実装可能？",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "content": "## AI実装フロー開始\\n\\n1. ブランチ作成\\n2. 実装\\n3. PR作成\\n4. テスト実行",
+        "height": 150,
+        "width": 200
+      },
+      "id": "ai-implementation-note",
+      "name": "AI実装へ",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [1050, 200]
+    },
+    {
+      "parameters": {
+        "webhookUrl": "={{$env[\"SLACK_WEBHOOK_URL\"]}}",
+        "text": "GitHub Issue作成完了\\n\\nタイトル: {{$node[\"create-issue\"].json[\"title\"]}}\\nURL: {{$node[\"create-issue\"].json[\"html_url\"]}}\\n複雑度: {{$node[\"ai-analysis\"].json[\"complexity\"]}}\\nAI実装: {{$node[\"ai-analysis\"].json[\"can_ai_implement\"] ? \"可能\" : \"要人間対応\"}}"
+      },
+      "id": "slack-notification",
+      "name": "Slack通知",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 1,
+      "position": [1050, 400]
+    }
+  ],
+  "connections": {
+    "Slack Webhook": {
+      "main": [
+        [
+          {
+            "node": "AI Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Analysis": {
+      "main": [
+        [
+          {
+            "node": "Create GitHub Issue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create GitHub Issue": {
+      "main": [
+        [
+          {
+            "node": "AI実装可能？",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI実装可能？": {
+      "main": [
+        [
+          {
+            "node": "AI実装へ",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Slack通知",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "versionId": "1.0.0"
+}

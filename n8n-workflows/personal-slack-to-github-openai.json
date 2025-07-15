@@ -1,0 +1,169 @@
+{
+  "name": "Personal Slack to GitHub (OpenAI)",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "slack-webhook",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Slack Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "resource": "chat",
+        "operation": "complete",
+        "modelId": "gpt-4",
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "あなたは開発タスクを分析してGitHub Issueを作成するアシスタントです。"
+            },
+            {
+              "role": "user", 
+              "content": "以下のSlackメッセージを分析して、GitHub Issueに適した形式で整理してください。\n\n入力: {{$json[\"body\"][\"text\"]}}\n\n以下のJSON形式で返してください:\n{\n  \"title\": \"簡潔なIssueタイトル\",\n  \"body\": \"詳細な説明\",\n  \"labels\": [\"適切なラベル\"],\n  \"complexity\": \"easy/medium/hard\",\n  \"can_ai_implement\": true/false,\n  \"implementation_plan\": \"AIが実装する場合の手順\"\n}"
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.3,
+          "responseFormat": {
+            "type": "json_object"
+          }
+        }
+      },
+      "id": "openai-analysis",
+      "name": "OpenAI Analysis",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1,
+      "position": [450, 300],
+      "credentials": {
+        "openAiApi": {
+          "id": "1",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "issue",
+        "operation": "create",
+        "owner": "={{$env[\"GITHUB_USERNAME\"]}}",
+        "repository": "={{$env[\"GITHUB_REPO\"]}}",
+        "title": "={{JSON.parse($json[\"message\"][\"content\"])[\"title\"]}}",
+        "body": "={{JSON.parse($json[\"message\"][\"content\"])[\"body\"]}}\\n\\n---\\n**複雑度**: {{JSON.parse($json[\"message\"][\"content\"])[\"complexity\"]}}\\n**AI実装可能**: {{JSON.parse($json[\"message\"][\"content\"])[\"can_ai_implement\"]}}\\n\\n## 実装計画\\n{{JSON.parse($json[\"message\"][\"content\"])[\"implementation_plan\"]}}",
+        "labels": "={{JSON.parse($json[\"message\"][\"content\"])[\"labels\"].join(\",\")}}"
+      },
+      "id": "create-issue",
+      "name": "Create GitHub Issue",
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1,
+      "position": [650, 300],
+      "credentials": {
+        "githubApi": {
+          "id": "2",
+          "name": "GitHub API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{JSON.parse($node[\"openai-analysis\"].json[\"message\"][\"content\"])[\"can_ai_implement\"]}}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "check-ai-implementable",
+      "name": "AI実装可能？",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env[\"SLACK_WEBHOOK_URL\"]}}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "text",
+              "value": "=GitHub Issue作成完了\\n\\nタイトル: {{JSON.parse($node[\"openai-analysis\"].json[\"message\"][\"content\"])[\"title\"]}}\\nURL: {{$node[\"create-issue\"].json[\"html_url\"]}}\\n複雑度: {{JSON.parse($node[\"openai-analysis\"].json[\"message\"][\"content\"])[\"complexity\"]}}\\nAI実装: {{JSON.parse($node[\"openai-analysis\"].json[\"message\"][\"content\"])[\"can_ai_implement\"] ? \"可能\" : \"要人間対応\"}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "slack-notification",
+      "name": "Slack通知",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1050, 400]
+    }
+  ],
+  "connections": {
+    "Slack Webhook": {
+      "main": [
+        [
+          {
+            "node": "OpenAI Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Analysis": {
+      "main": [
+        [
+          {
+            "node": "Create GitHub Issue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create GitHub Issue": {
+      "main": [
+        [
+          {
+            "node": "AI実装可能？",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI実装可能？": {
+      "main": [
+        [
+          {
+            "node": "Slack通知",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Slack通知",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
